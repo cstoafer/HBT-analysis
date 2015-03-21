@@ -68,7 +68,7 @@ def setup_ax_arr(fig, numV, numH, ylim, sharey=True, hide_xlabels=True, hide_yla
 
     return ax_arr
 
-def setup_axes(ax, ylabel, ylim=None, aligny=False, xlim=None, xlabel=None, ygrid=False, num_major_yticks=5, xtick_labels=False, vlines=[], hlines=[], xlog=False, ylog=False, topright=False):
+def setup_axes(ax, ylabel=None, ylim=None, aligny=False, xlim=None, xlabel=None, ygrid=False, num_major_yticks=5, xtick_labels=False, vlines=[], hlines=[], xlog=False, ylog=False, topright=False):
     if ylim: ax.set_ylim(ylim[0], ylim[1])
     if ylabel: ax.set_ylabel(ylabel, multialignment='center')#, ha='center')
     if aligny: ax.yaxis.set_label_coords(-.3, 0.5)

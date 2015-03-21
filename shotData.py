@@ -55,8 +55,8 @@ class signalData:
 
     def plot(self, ax=None, color=None, multiplier=1.0):
         plot_mask = np.isfinite(self._signal)
-        plot_times = self._times[plot_mask]*1e3
-        plot_signal = multiplier*self._signal[plot_mask]
+        plot_times = np.copy(self._times)[plot_mask]*1e3
+        plot_signal = multiplier*np.copy(self._signal)[plot_mask]
         if ax is None:
             if color is None:
                 plt.plot(plot_times, plot_signal)
@@ -73,6 +73,7 @@ class magSensorData:
         self._times = np.copy(times)
         self._signals = np.copy(signals)
         self._sensors = copy.deepcopy(sensors)
+        self.SSet = surfaceAnalysis.SensorSet()
 
     @property
     def times(self):
@@ -98,26 +99,27 @@ class magSensorData:
     def sensors(self, sensors):
         self._sensors = copy.deepcopy(sensors)
 
-    def plotContour(self, ax=None):
-        signals = np.copy(self.signals)
-        sig_range = np.abs(signals).max()
-        SSet.setNameList(sensors)
-        if 'PA' in sensors[0]:
-            angles = 180/np.pi*SSet.loc_Theta
+    def plotContour(self, startTime, endTime, ax=None, windowLen=720, fitExtend=0.7):
+        signals = signalAnalysis.subtract_background(self._times, self._signals, windowLen=windowLen, startTime=startTime, endTime=endTime, fitExtend=fitExtend)
+        self.SSet.setNameList(self._sensors)
+        if 'PA' in self._sensors[0]:
+            angles = 180/np.pi*self.SSet.loc_Theta
         else:
-            angles = SSet.loc_Phi
+            angles = self.SSet.loc_Phi
             angles[angles<0] += 2*np.pi
-            if 'TA' in sensors[0]:
+            if 'TA' in self._sensors[0]:
                 angles = np.roll(180/np.pi*angles,-11)
                 signals = np.roll(signals,-11,axis=0)
-            elif 'FB' in sensors[0]:
+            elif 'FB' in self._sensors[0]:
                 angles = np.roll(180/np.pi*angles,-4)
                 signals = np.roll(signals,-4,axis=0)
+        plot_mask = (self._times > startTime*1e-3) & (self._times < endTime*1e-3)
+        sig_range = np.abs(signals[:,plot_mask]).max()
         if ax is None:
-            plt.contourf(self.times*1e3, angles, signals, 25, cmap=red_green_colormap(),
+            plt.contourf(self._times[plot_mask]*1e3, angles, signals[:,plot_mask], 25, cmap=red_green_colormap(),
                 norm=Normalize(vmin=-sig_range, vmax=sig_range))
         else:
-            ax.contourf(self.times*1e3, angles, signals, 25, cmap=red_green_colormap(),
+            ax.contourf(self._times[plot_mask]*1e3, angles, signals[:,plot_mask], 25, cmap=red_green_colormap(),
                 norm=Normalize(vmin=-sig_range, vmax=sig_range))
 
 
@@ -138,6 +140,7 @@ class shotData:
         self.lowPassMach = lowPassMach
         self.lowPassModes = lowPassModes
         self.byrne = byrne
+        self.SSet = surfaceAnalysis.SensorSet()
 
     def getSignal(self, sigName, lowPassFreq=None, zeroSignal=False, store=True):
         if sigName not in self._data:
@@ -158,7 +161,7 @@ class shotData:
         for i, sig in enumerate(sigList):
             signals[i] = self.getSignal(sig, lowPassFreq=lowPassFreq, zeroSignal=zeroSignal, store=store).data
 
-        return signalData(self.times, signal, sigList)
+        return signalData(self.times, signals, sigList)
 
     def detMach(self, cal=[1.0, 0.629, .964, 1.324]):
         if 'machT' not in self._data:
@@ -195,18 +198,20 @@ class shotData:
     @property
     def MR(self):
         if 'MR' not in self._data:
-            self._data['MR'] = calc_r_major(self.tree, t_start=self.startTime, t_end=self.endTime, byrne = self.byrne)
+            #start_calc_r = -1e-3
+            _, self._data['MR'] = calc_r_major(self.tree, t_start=self.startTime, t_end=self.endTime, byrne = self.byrne)
         return signalData(self.times, self._data['MR'], 'MR')
 
     @property
     def q(self):
         if 'q' not in self._data:
-            self._data['q'] = calc_q(self.tree, self.times, r_major=self.MR.data, byrne = self.byrne)
+            temp_times, temp_r =  calc_r_major(self.tree, t_start=self.startTime, t_end=self.endTime, byrne = self.byrne)
+            self._data['q'] = calc_q(self.tree, temp_times, r_major=temp_r, byrne = self.byrne)
         return signalData(self.times, self._data['q'], 'q')
 
     @property
     def sxrfan(self):
-        sxrfan = np.empty((15, len(times)))
+        sxrfan = np.empty((15, len(self.times)))
         for i in np.arange(15):
             sxrfan[i,:] = self.getSignal('devices.west_rack:cpci:input_{0:02d}'.format(i+74)).data
 
@@ -254,7 +259,7 @@ class shotData:
         DAlpha = self.getSignal('.devices.screen_room:a14:input_1', zeroSignal=True)
         DAlpha.name = 'DAlpha'
 
-        return Dalpha
+        return DAlpha
 
     @property
     def bias_v(self):
@@ -265,10 +270,10 @@ class shotData:
 
     @property
     def bias_cur(self):
-        bias_c = self.getSignal('.sensors.bias_probe:current')
-        bias_c.name = 'bias_c'
+        bias_cur = self.getSignal('.sensors.bias_probe:current')
+        bias_cur.name = 'bias_cur'
 
-        return bias_c
+        return bias_cur
 
     @property
     def tipA_cur(self):
@@ -329,38 +334,38 @@ class shotData:
     @property
     def FB1p(self):
         fb_sensors = argparse_sensors_type('FB*1p')
-        fb_sensors = SSet.filterBadSensors(fb_sensors)
+        fb_sensors = self.SSet.filterBadSensors(fb_sensors)
         sigList = ['.sensors.magnetic:{}'.format(sensor) for sensor in fb_sensors]
         fb_signals = self.getMultSignals(sigList, zeroSignal=True, store=False).data
 
-        return magSensorData(fb_signals, fb_sensors)
+        return magSensorData(self.times, fb_signals, fb_sensors)
 
     @property
     def FB2p(self):
         fb_sensors = argparse_sensors_type('FB*2p')
-        fb_sensors = SSet.filterBadSensors(fb_sensors)
+        fb_sensors = self.SSet.filterBadSensors(fb_sensors)
         sigList = ['.sensors.magnetic:{}'.format(sensor) for sensor in fb_sensors]
         fb_signals = self.getMultSignals(sigList, zeroSignal=True, store=False).data
 
-        return magSensorData(fb_signals, fb_sensors)
+        return magSensorData(self.times, fb_signals, fb_sensors)
 
     @property
     def FB3p(self):
         fb_sensors = argparse_sensors_type('FB*3p')
-        fb_sensors = SSet.filterBadSensors(fb_sensors)
+        fb_sensors = self.SSet.filterBadSensors(fb_sensors)
         sigList = ['.sensors.magnetic:{}'.format(sensor) for sensor in fb_sensors]
         fb_signals = self.getMultSignals(sigList, zeroSignal=True, store=False).data
 
-        return magSensorData(fb_signals, fb_sensors)
+        return magSensorData(self.times, fb_signals, fb_sensors)
 
     @property
     def FB4p(self):
         fb_sensors = argparse_sensors_type('FB*4p')
-        fb_sensors = SSet.filterBadSensors(fb_sensors)
+        fb_sensors = self.SSet.filterBadSensors(fb_sensors)
         sigList = ['.sensors.magnetic:{}'.format(sensor) for sensor in fb_sensors]
         fb_signals = self.getMultSignals(sigList, zeroSignal=True, store=False).data
 
-        return magSensorData(fb_signals, fb_sensors)
+        return magSensorData(self.times, fb_signals, fb_sensors)
 
     @property
     def FBallp(self):
@@ -368,78 +373,77 @@ class shotData:
         fb_signals = []
         for i in np.arange(4):
             fb_sensors.append(argparse_sensors_type('FB*{}p'.format(i+1)))
-            fb_sensors[i] = SSet.filterBadSensors(fb_sensors[i])
+            fb_sensors[i] = self.SSet.filterBadSensors(fb_sensors[i])
             sigList = ['.sensors.magnetic:{}'.format(sensor) for sensor in fb_sensors[i]]
             fb_signals.append(self.getMultSignals(sigList, zeroSignal=True, store=False).data)
 
-        return [ magSensorData(signals[i], sensors[i]) for i in np.arange(4) ]
+        return [ magSensorData(self.times, fb_signals[i], fb_sensors[i]) for i in np.arange(4) ]
 
     @property
     def TAp(self):
         sensors = argparse_sensors_type('TA*p')
-        sensors = SSet.filterBadSensors(sensors)
+        sensors = self.SSet.filterBadSensors(sensors)
         sigList = ['.sensors.magnetic:{}'.format(sensor) for sensor in sensors]
         signals = self.getMultSignals(sigList, zeroSignal=True, store=False).data
 
-        return magSensorData(signals, sensors)
+        return magSensorData(self.times, signals, sensors)
 
     @property
     def PA1p(self):
         sensors = argparse_sensors_type('PA1*p')
-        sensors = SSet.filterBadSensors(sensors)
+        sensors = self.SSet.filterBadSensors(sensors)
         sigList = ['.sensors.magnetic:{}'.format(sensor) for sensor in sensors]
         signals = self.getMultSignals(sigList, zeroSignal=True, store=False).data
 
-        return magSensorData(signals, sensors)
+        return magSensorData(self.times, signals, sensors)
 
     @property
     def PA2p(self):
         sensors = argparse_sensors_type('PA2*p')
-        B
-        sensors = SSet.filterBadSensors(sensors)
+        sensors = self.SSet.filterBadSensors(sensors)
         sigList = ['.sensors.magnetic:{}'.format(sensor) for sensor in sensors]
         signals = self.getMultSignals(sigList, zeroSignal=True, store=False).data
 
-        return magSensorData(signals, sensors)
+        return magSensorData(self.times, signals, sensors)
 
     # Radial magnetic sensors -----------------------------
     @property
     def FB1r(self):
         fb_sensors = argparse_sensors_type('FB*1r')
-        fb_sensors = SSet.filterBadSensors(fb_sensors)
+        fb_sensors = self.SSet.filterBadSensors(fb_sensors)
         sigList = ['.sensors.magnetic:{}'.format(sensor) for sensor in fb_sensors]
         fb_signals = self.getMultSignals(sigList, zeroSignal=True, store=False).data
 
-        return magSensorData(fb_signals, fb_sensors)
+        return magSensorData(self.times, fb_signals, fb_sensors)
 
     @property
     def FB2r(self):
         fb_sensors = argparse_sensors_type('FB*2r')
-        fb_sensors = SSet.filterBadSensors(fb_sensors)
+        fb_sensors = self.SSet.filterBadSensors(fb_sensors)
         sigList = ['.sensors.magnetic:{}'.format(sensor) for sensor in fb_sensors]
         fb_signals = self.getMultSignals(sigList, zeroSignal=True, store=False).data
 
-        return magSensorData(fb_signals, fb_sensors)
+        return magSensorData(self.times, fb_signals, fb_sensors)
 
 
     @property
     def FB3r(self):
         fb_sensors = argparse_sensors_type('FB*3r')
-        fb_sensors = SSet.filterBadSensors(fb_sensors)
+        fb_sensors = self.SSet.filterBadSensors(fb_sensors)
         sigList = ['.sensors.magnetic:{}'.format(sensor) for sensor in fb_sensors].data
         fb_signals = self.getMultSignals(sigList, zeroSignal=True, store=False)
 
-        return magSensorData(fb_signals, fb_sensors)
+        return magSensorData(self.times, fb_signals, fb_sensors)
 
 
     @property
     def FB4r(self):
         fb_sensors = argparse_sensors_type('FB*4r')
-        fb_sensors = SSet.filterBadSensors(fb_sensors)
+        fb_sensors = self.SSet.filterBadSensors(fb_sensors)
         sigList = ['.sensors.magnetic:{}'.format(sensor) for sensor in fb_sensors]
         fb_signals = self.getMultSignals(sigList, zeroSignal=True, store=False).data
 
-        return magSensorData(fb_signals, fb_sensors)
+        return magSensorData(self.times, fb_signals, fb_sensors)
 
     @property
     def FBallr(self):
@@ -447,38 +451,68 @@ class shotData:
         fb_signals = []
         for i in np.arange(4):
             fb_sensors.append(argparse_sensors_type('FB*{}r'.format(i+1)))
-            fb_sensors[i] = SSet.filterBadSensors(fb_sensors[i])
+            fb_sensors[i] = self.SSet.filterBadSensors(fb_sensors[i])
             sigList = ['.sensors.magnetic:{}'.format(sensor) for sensor in fb_sensors[i]]
             fb_signals.append(self.getMultSignals(sigList, zeroSignal=True, store=False).data)
 
-        return [ magSensorData(signals[i], sensors[i]) for i in np.arange(4) ]
+        return [ magSensorData(self.times, fb_signals[i], fb_sensors[i]) for i in np.arange(4) ]
 
     @property
     def TAr(self):
         sensors = argparse_sensors_type('TA*r')
-        sensors = SSet.filterBadSensors(sensors)
+        sensors = self.SSet.filterBadSensors(sensors)
         sigList = ['.sensors.magnetic:{}'.format(sensor) for sensor in sensors]
         signals = self.getMultSignals(sigList, zeroSignal=True, store=False).data
 
-        return magSensorData(signals, sensors)
+        return magSensorData(self.times, signals, sensors)
 
     @property
     def PA1r(self):
         sensors = argparse_sensors_type('PA1*r')
-        sensors = SSet.filterBadSensors(sensors)
+        sensors = self.SSet.filterBadSensors(sensors)
         sigList = ['.sensors.magnetic:{}'.format(sensor) for sensor in sensors]
         signals = self.getMultSignals(sigList, zeroSignal=True, store=False).data
 
-        return magSensorData(signals, sensors)
+        return magSensorData(self.times, signals, sensors)
 
     @property
     def PA2r(self):
         sensors = argparse_sensors_type('PA2*r')
-        sensors = SSet.filterBadSensors(sensors)
+        sensors = self.SSet.filterBadSensors(sensors)
         sigList = ['.sensors.magnetic:{}'.format(sensor) for sensor in sensors]
         signals = self.getMultSignals(sigList, zeroSignal=True, store=False).data
 
-        return magSensorData(signals, sensors)
+        return magSensorData(self.times, signals, sensors)
 
+    def detFB_amp_freq(self, cutoffFreq=0.3e3, window=50):
+        FB_amp_list = []
+        FB_freq_list = []
+        filt_order = 2
+        for FBarray in self.FBallp:
+            FB_n1 = signalAnalysis.detN1(FBarray.data, FBarray.sensors)
+            FB_n1 = BandFilt.HighPassProcess(FB_n1, self.times, filt_order, cutoffFreq)
+            FB_amp_list.append(np.sqrt(FB_n1[0]**2 + FB_n1[1]**2))
+            FB_phase = np.arctan2(FB_n1[1], FB_n1[0])
+            FB_freq_list.append(np.convolve(np.unwrap(FB_phase), signalAnalysis.slope_fit(window), 'same') / (2*np.pi*2e-3))
+        FB_amp = np.average(FB_amp_list, axis=0)*1e3
+        FB_freq = np.average(FB_freq_list, axis=0)
 
+        return (FB_amp, FB_freq)
 
+    @property
+    def FBamp(self):
+        if 'FBamp' not in self._data:
+            FB_amp, FB_freq = self.detFB_amp_freq(cutoffFreq=0.4e3, window=50)
+            self._data['FBamp'] = FB_amp
+            self._data['FBfreq'] = FB_freq
+
+        return signalData(self.times, self._data['FBamp'], 'FBamp')
+
+    @property
+    def FBfreq(self):
+        if 'FBfreq' not in self._data:
+            FB_amp, FB_freq = self.detFB_amp_freq(cutoffFreq=0.1e3, window=50)
+            self._data['FBamp'] = FB_amp
+            self._data['FBfreq'] = FB_freq
+
+        return signalData(self.times, self._data['FBfreq'], 'FBfreq')

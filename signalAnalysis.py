@@ -26,14 +26,28 @@ def zeroSignal(times, trigTime, signal):
     zero_mask = times < trigTime
     return signal - signal[zero_mask].mean()
 
-def smooth(signals, window_len):
+def smooth(signals, windowLen):
     sig_equil = np.zeros(signals.shape)
-    window = np.hamming(window_len)
+    window = np.hamming(windowLen)
     window = window / window.sum()
-    for i in np.arange(signals.shape[0]):
-        sig_equil[i,:]=np.convolve(window, signals[i,:],mode='same')
+    if signals.ndim > 1:
+        for i in np.arange(signals.shape[0]):
+            sig_equil[i,:]=np.convolve(window, signals[i,:],mode='same')
+    else:
+        sig_equil = np.convolve(window, signals, mode='same')
 
     return sig_equil
+
+def slope_fit(pts_cnt):
+    '''Return weights to determine slope from *pts* points'''
+
+    A = np.empty((pts_cnt, 2))
+    for i in np.arange(2):
+        A[:,i] = np.arange(pts_cnt)**i
+
+    A_i = np.linalg.pinv(A)
+
+    return A_i[1,::-1]
 
 def polyFit(times, signals, deg):
     poly_signals = np.polyfit(times, np.transpose(signals), deg)
@@ -44,17 +58,17 @@ def polyFit(times, signals, deg):
 
     return sig_equil
 
-def subtract_background(times, signals, subtr_avg=True, fit='smooth', window_len=720, polyDeg=4, zoomStart=2, zoomEnd=4, fitExtend=0.7):
+def subtract_background(times, signals, subtr_avg=True, fit='smooth', windowLen=720, polyDeg=4, startTime=2, endTime=4, fitExtend=0.7):
     sigs_temp = np.copy(signals)
     if subtr_avg:
         avgSigs = np.average(signals, axis=0)
         # Remove n=0 or m=0 component of signals
         sigs_temp = signals-avgSigs
 
-    fitmask = (times > (zoomStart - fitExtend)*1e-3) & (times < (zoomEnd + fitExtend)*1e-3)
+    fitmask = (times > (startTime - fitExtend)*1e-3) & (times < (endTime + fitExtend)*1e-3)
     sig_equil = np.zeros(signals.shape)
     if fit == 'smooth':
-        sig_equil[:,fitmask] = smooth(sigs_temp[:,fitmask], window_len)
+        sig_equil[:,fitmask] = smooth(sigs_temp[:,fitmask], windowLen)
     if fit == 'polynomial':
         sig_equil[:,fitmask] = polyFit(sigs_temp[:,fitmask], polyDeg)
     sigs_temp -= sig_equil
