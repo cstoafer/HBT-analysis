@@ -163,6 +163,7 @@ class shotData:
 
         return signalData(self.times, signals, sigList)
 
+    #def detMach(self, cal=[0.6370, 0.2485, 0.5448, 0.4853]):
     def detMach(self, cal=[1.0, 0.629, .964, 1.324]):
         if 'machT' not in self._data:
             tipA_cur = self.getSignal('.sensors.mach_probe:tipA_c', lowPassFreq = self.lowPassMach, zeroSignal=True).data

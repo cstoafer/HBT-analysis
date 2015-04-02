@@ -878,15 +878,15 @@ def main(SSet, shot_data_dict, fig, figTA, figPA1, figPA2, figFB, figTA_n1, figF
         if shotno <= 0:
             shotno += current_shot
 
-        if shotno not in shot_data_dict:
-            start_time = 0.0
-            shot_data_dict[shotno] = shotData(shotno, start_time, options.end_time, lowPassMach=6.0)
-        shot_data = shot_data_dict[shotno]
-
         last_shot=1 if i == len(options.shotnos)-1 else 0
 
         log.info('Processing %d...', shotno)
         try:
+            if shotno not in shot_data_dict:
+                start_time = 0.0
+                shot_data_dict[shotno] = shotData(shotno, start_time, options.end_time, lowPassMach=6.0)
+            shot_data = shot_data_dict[shotno]
+
             idx = len(options.shotnos)-2-i
             color = bw_color if last_shot else get_color(idx)
             #tree = MDSplus.Tree('hbtep2', shotno)

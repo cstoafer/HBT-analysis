@@ -12,8 +12,8 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 from matplotlib.ticker import MaxNLocator, MultipleLocator
 import matplotlib.gridspec as gridspec
-import plotSettings
-from shotData import shotData
+from hbtep import plotSettings
+from hbtep.shotData import shotData
 
 def parse_args(args=None):
     '''Parse command line'''
@@ -31,8 +31,6 @@ def parse_args(args=None):
 
     return options
 
-def plotShotFig1(shot_data, color, tipA_cur_ax, tipB_cur_ax, tipC_cur_ax, tipD_cur_ax, tipE_cur_ax, machTOR_ax, machPOL_ax, mach_amp2_ax, mach_dir2_ax, tipE_v_ax):
-    print('something')
 
 
 def main():
